@@ -40,6 +40,7 @@ snap_domain() {
   if ! $virsh domfsfreeze $domain; then
     error "Unable to freeze filesystems"
   fi
+  sleep 30
   for ((i = 0; i < $drives_amount; i++)); do
     image+=($1)
     $rbd snap create $1@borg
