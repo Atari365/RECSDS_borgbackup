@@ -2,7 +2,7 @@
 
 export BORG_REPO=${3:-"~/borgbackup/$HOSTNAME"}
 export virsh="virsh --connect qemu:///system"
-export rbd="rbd --keyring keys/ceph.client.admin.keyring"
+export rbd="rbd --keyring ../keys/ceph.client.admin.keyring"
 
 error() {
   local -r msg=$1
@@ -12,20 +12,20 @@ error() {
 }
 
 create_repo() {
-  echo check repository $BORG_REPO:
+  echo Check repository $BORG_REPO:
   borg init --make-parent-dirs -e none $BORG_REPO > /dev/null 2>&1
 
   case $? in
     0)
-      echo repo $BORG_REPO created
+      echo Repo $BORG_REPO created
       return 0
       ;;
     2)
-      echo repo $BORG_REPO exist
+      echo Repo $BORG_REPO exist
       return 1
       ;;
     *)
-      echo unexpected error, exit...
+      echo error "Can't access or create repo"
       exit 1
       ;;
   esac
@@ -87,17 +87,21 @@ backup_domain() {
   xml="/tmp/"$domain"_borg.xml"
 
   echo Start backup
-  (
-    while borg create --stats $BORG_REPO::$name $backup_images $xml > /dev/null 2>&1; do
-      sleep 60
-    done
+  (borg create --stats $BORG_REPO::$name $backup_images $xml > /dev/null 2>&1) &
+  wait
 
-    for img in $backup_images; do
-     rm $img
-    done
-    rm "/tmp/"$domain"_borg.xml"
-  ) &
+  for img in $backup_images; do
+   rm $img
+  done
+  rm "/tmp/"$domain"_borg.xml"
+  echo Backup complete
 }
+
+cd $(dirname ${BASH_SOURCE[0]})
+
+if ! [[ -e ../keys/ceph.client.admin.keyring ]]; then
+  error "keys/ceph.client.admin.keyring not exist"
+fi
 
 while [[ ! -z `pidof -x -o $$ $(basename $0)` ]]; do
   echo "Backup already running..."
