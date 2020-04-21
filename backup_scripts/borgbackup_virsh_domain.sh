@@ -37,7 +37,9 @@ snap_domain() {
   local image=()
   local drive_name=()
 
-  $virsh suspend $domain
+  if ! $virsh domfsfreeze $domain; then
+    error "Unable to freeze filesystems"
+  fi
   for ((i = 0; i < $drives_amount; i++)); do
     image+=($1)
     $rbd snap create $1@borg
@@ -45,7 +47,7 @@ snap_domain() {
     shift
   done
   echo ""
-  $virsh resume $domain
+  $virsh domfsthaw $domain
 
   for ((i = 0; i < $drives_amount; i++)); do
     drive_name+=($1); shift
