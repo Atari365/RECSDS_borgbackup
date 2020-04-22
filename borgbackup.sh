@@ -36,13 +36,21 @@ Examples:
 error() {
   local -r msg=$1
 
+<<<<<<< HEAD
   echo -e [$(date +'%m/%d/%Y %H:%M:%S.%N')] Error: $msg
+=======
+  echo -e "[$(date +'%m/%d/%Y %H:%M:%S.%N')] Error: $msg"
+>>>>>>> 76033b6561a4e03337f474fafae16f33d5ec26a9
   exit 1
 }
 
 create_repo() {
   echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Check repository $BORG_REPO:
+<<<<<<< HEAD
   borg init --make-parent-dirs -e none $BORG_REPO
+=======
+  borg init --make-parent-dirs -e none $BORG_REPO > /dev/null 2>&1
+>>>>>>> 76033b6561a4e03337f474fafae16f33d5ec26a9
 
   case $? in
     0)
@@ -107,7 +115,11 @@ backup_domain() {
 
 main() {
   while [[ ! -z `pidof -x -o $$ $(basename $0)` ]]; do
+<<<<<<< HEAD
     echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Warning: Backup already running...
+=======
+    echo "$(date +'%m/%d/%Y %H:%M:%S.%N')] Backup already running..."
+>>>>>>> 76033b6561a4e03337f474fafae16f33d5ec26a9
     sleep 10
   done
 
@@ -117,6 +129,7 @@ main() {
 
   create_repo
 
+  printf "[$(date +'%m/%d/%Y %H:%M:%S.%N')] "
   for domain in $@; do
     backup_domain $domain
     borg prune -v --list -P $PRUNE_PREFIX"_"$domain \
