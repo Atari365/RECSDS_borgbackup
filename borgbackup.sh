@@ -16,13 +16,15 @@ export keyring=keys/ceph.client.admin.keyring
 export rbd="rbd --keyring $keyring"
 
 usage() {
-echo "Usage: $0 [OPTIONS]... DOMAIN
+echo "Usage: $0 [OPTIONS]... DOMAIN...
 Backup DOMAIN(s) of libvirt via Borgbackup
 
-  -kd, --keep-daily      how many backups of each day will be kept
-  -kw, --keep-weekly     how many backups of each week will be kept
-  -km, --keep-monthly    how many backups of each month will be kept
-  -r,  --repo            where to backup
+  -kd, --keep-daily      how many backups of each day will be kept (Default: 7)
+  -kw, --keep-weekly     how many backups of each week will be kept (Default: 4)
+  -km, --keep-monthly    how many backups of each month will be kept (Default: 4)
+  -t,  --timestamp       timestamp format (Default: {now:%Y-%m-%d})
+  -r,  --repo            where to backup (Default: borg@\$HOSTNAME:~/borgbackup/\$HOSTNAME)
+  -p,  --prefix          prefix used by prune (Default: recsds)
   -h,  --help            print this message
 
 Examples:
@@ -45,12 +47,10 @@ create_repo() {
   case $? in
     0)
       echo Repo $BORG_REPO created
-      echo
       return 0
       ;;
     2)
       echo Repo $BORG_REPO exist
-      echo
       return 1
       ;;
     *)
@@ -60,42 +60,11 @@ create_repo() {
   esac
 }
 
-snap_domain() {
-  local -r domain=$1; shift
-  local -r drives_amount=$(($# / 2))
-  local image=()
-  local drive_name=()
-
-  if ! $virsh domfsfreeze $domain; then
-    error "Unable to freeze filesystems"
-  fi
-  sleep 20
-  for ((i = 0; i < $drives_amount; i++)); do
-    image+=($1)
-    $rbd snap create $1@borg
-    echo Snapshot $1@borg created
-    shift
-  done
-  echo ""
-  $virsh domfsthaw $domain
-
-  for ((i = 0; i < $drives_amount; i++)); do
-    drive_name+=($1); shift
-  done
-
-  for ((i = 0; i < $drives_amount; i++)); do
-    $rbd export ${image[$i]}@borg "/tmp/"$domain"_"${drive_name[$i]}"_borg.raw"
-    $rbd snap rm ${image[$i]}@borg
-  done
-
-  return 0
-}
-
 backup_domain() {
   local -r domain=$1
-  local image
-  local drive_name
-  local backup_images
+  local image=()
+  local drive_name=()
+  local backup_images=()
 
   if [[ $($virsh list --all | grep $domain | awk '{print $3}') != running ]]; then
     error "Domain $domain does not exist"
@@ -104,24 +73,29 @@ backup_domain() {
   fi
 
   # Get info about attached drives
-  image=$($virsh domblklist --details $domain | awk '/disk/{print $4}')
-  drive_name=$($virsh domblklist --details $domain | awk '/disk/{print $3}')
+  image=($($virsh domblklist --details $domain | awk '/disk/{print $4}' | tr " " "\n"))
+  drive_name=($($virsh domblklist --details $domain | awk '/disk/{print $3}' | tr " " "\n"))
 
-  snap_domain $domain $image $drive_name
+  # Freeze domain
+  if ! $virsh domfsfreeze $domain; then
+    error "Unable to freeze filesystems"
+  fi
+  sleep 20 # For warranty
+  for img in "${image[@]}"; do
+    $rbd snap create $img@borg
+    echo Snapshot $img@borg created
+  done
+  $virsh domfsthaw $domain
 
-  for blk in $drive_name; do
-    backup_images+=" /tmp/"$domain"_"$blk"_borg.raw"
+  for ((i = 0; i < ${#image[@]}; i++)); do
+    echo Start backup $domain/${drive_name[$i]}
+    # Backup RBD to Borg repo
+    $rbd export ${image[$i]}@borg - | borg create --stats \
+      $BORG_REPO::$PRUNE_PREFIX"_"$domain"_"${drive_name[$i]}"_"$TIMESTAMP -
+    $rbd snap rm ${image[$i]}@borg
+    echo Backup $domain/${drive_name[$i]} complete
   done
 
-  echo Start backup $domain
-  borg create --stats \
-      $BORG_REPO::$PRUNE_PREFIX"_"$domain"_"$TIMESTAMP \
-       $backup_images
-  echo Backup $domain complete
-
-  for img in $backup_images; do
-   rm $img
-  done
   return 0
 }
 
@@ -145,6 +119,8 @@ main() {
         --keep-monthly=$KEEP_MONTHLY \
         $BORG_REPO
   done
+
+  return 0
 }
 
 cd $(dirname ${BASH_SOURCE[0]})
@@ -173,6 +149,14 @@ while [[ "$1" != "" ]]; do
     -r | --repo)
       shift
       BORG_REPO=$1
+      ;;
+    -t | --timestamp )
+      shift
+      TIMESTAMP=$1
+      ;;
+    -p,  --prefix )
+      shift
+      PRUNE_PREFIX=$1
       ;;
     *)
       main $@

@@ -22,7 +22,7 @@ chmod 644 keys/ceph.client.admin.keyring
 ```
 ###  Make scripts executable
 ```bash
-chmod +x backup_scripts/borgbackup_virsh_domain.sh
+chmod +x borgbackup.sh
 ```
 
 ## Install qemu agent on domain
@@ -53,26 +53,17 @@ sudo virsh qemu-agent-command <guest-name> '{"execute":"guest-info"}'
 # Usage
 ## Manual virsh domain backup
 ```bash
-./backup_scripts/borgbackup_virsh_domain.sh BACKUP_NAME DOMAIN [BORG_REPO]
+./borgbackup.sh [OPTIONS]... DOMAIN...
 ```
 
 ## Automation backup
-### Copy template
-```bash
-cp auto_backup/template.sh auto_backup/NAME.sh
-chmod +x auto_backup/NAME.sh
-```
-### Edit script
-```bash
-vi auto_backup/NAME.sh
-```
 ### Add script to crontab
 ```bash
 crontab -e
 ```
 And add this string
 ```bash
-0 0 * * * path-to-auto-backup-script
+0 0 * * * path-to-auto-backup-script [OPTIONS]... DOMAIN...
 ```
 
 # Optional
