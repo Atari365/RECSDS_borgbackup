@@ -82,8 +82,9 @@ backup_domain() {
   fi
   sleep 5 # For warranty
   for img in "${image[@]}"; do
-    $rbd snap create $img@borg
-    echo [$(date +'%m/%d/%Y %H:%M:%S.%N')]  Snapshot $img@borg created
+    if $rbd snap create $img@borg; then
+      echo [$(date +'%m/%d/%Y %H:%M:%S.%N')]  Snapshot $img@borg created
+    fi
   done
   printf "[$(date +'%m/%d/%Y %H:%M:%S.%N')] "
   $virsh domfsthaw $domain | sed -r '/^\s*$/d'
@@ -100,6 +101,11 @@ backup_domain() {
       error "Backup $domain/${drive_name[$i]} stoped"
     fi
     $rbd snap rm ${image[$i]}@borg
+    borg prune -v --list -P $PRUNE_PREFIX"_"$domain"_"${drive_name[$i]}"_" \
+        --keep-daily=$KEEP_DAILY \
+        --keep-weekly=$KEEP_WEEKLY \
+        --keep-monthly=$KEEP_MONTHLY \
+        $BORG_REPO
   done
 
   return 0
@@ -112,7 +118,7 @@ main() {
   done
 
   if ! [[ -e $keyring ]]; then
-    error "keys/ceph.client.admin.keyring not exist"
+    error "keys/ceph.client.borg.keyring not exist"
   fi
 
   create_repo
@@ -120,11 +126,6 @@ main() {
   printf "[$(date +'%m/%d/%Y %H:%M:%S.%N')] "
   for domain in $@; do
     backup_domain $domain
-    borg prune -v --list -P $PRUNE_PREFIX"_"$domain \
-        --keep-daily=$KEEP_DAILY \
-        --keep-weekly=$KEEP_WEEKLY \
-        --keep-monthly=$KEEP_MONTHLY \
-        $BORG_REPO
   done
 
   return 0
