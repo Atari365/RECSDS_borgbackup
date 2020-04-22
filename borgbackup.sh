@@ -7,6 +7,7 @@ export KEEP_MONTHLY=4
 
 export TIMESTAMP={now:%Y-%m-%d}
 export PRUNE_PREFIX=recsds
+export LOG_TIMESTAMP=[$(date +'%m/%d/%Y %H:%M:%S.%N')]
 
 export BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes
 export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
@@ -14,6 +15,7 @@ export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
 export virsh="virsh --connect qemu:///system"
 export keyring=keys/ceph.client.borg.keyring
 export rbd="rbd --user borg --keyring $keyring"
+export PIDFILE=recsds_borgbackup.pid
 
 usage() {
 echo "Usage: $0 [OPTIONS]... DOMAIN...
@@ -36,21 +38,21 @@ Examples:
 error() {
   local -r msg=$1
 
-  echo -e [$(date +'%m/%d/%Y %H:%M:%S.%N')] Error: $msg
+  echo -e $LOG_TIMESTAMP Error: $msg
   exit 1
 }
 
 create_repo() {
-  echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Check repository $BORG_REPO:
+  echo $LOG_TIMESTAMP Check repository $BORG_REPO:
   borg init --make-parent-dirs -e none $BORG_REPO
 
   case $? in
     0)
-      echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Repo $BORG_REPO created
+      echo $LOG_TIMESTAMP Repo $BORG_REPO created
       return 0
       ;;
     2)
-      echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Repo $BORG_REPO exist
+      echo $LOG_TIMESTAMP Repo $BORG_REPO exist
       return 1
       ;;
     *)
@@ -68,7 +70,7 @@ backup_domain() {
   if [[ $($virsh list --all | grep $domain | awk '{print $3}') != running ]]; then
     error "Domain $domain does not exist"
   else
-    echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Prepare to $domain backup
+    echo $LOG_TIMESTAMP Prepare to $domain backup
   fi
 
   # Get info about attached drives
@@ -76,7 +78,7 @@ backup_domain() {
   drive_name=($($virsh domblklist --details $domain | awk '/disk/{print $3}' | tr " " "\n"))
 
   # Freeze domain
-  printf "[$(date +'%m/%d/%Y %H:%M:%S.%N')] "
+  printf "$LOG_TIMESTAMP "
   if ! $virsh domfsfreeze $domain | sed -r '/^\s*$/d'; then
     error "Unable to freeze filesystems"
   fi
@@ -86,17 +88,17 @@ backup_domain() {
       echo [$(date +'%m/%d/%Y %H:%M:%S.%N')]  Snapshot $img@borg created
     fi
   done
-  printf "[$(date +'%m/%d/%Y %H:%M:%S.%N')] "
+  printf "$LOG_TIMESTAMP "
   $virsh domfsthaw $domain | sed -r '/^\s*$/d'
 
   for ((i = 0; i < ${#image[@]}; i++)); do
-    echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Start backup $domain/${drive_name[$i]}
+    echo $LOG_TIMESTAMP Start backup $domain/${drive_name[$i]}
     # Backup RBD to Borg repo
     if $rbd export ${image[$i]}@borg - | borg create --stats \
          --stdin-name $domain"_"${drive_name[$i]}".raw" \
          $BORG_REPO::$PRUNE_PREFIX"_"$domain"_"${drive_name[$i]}"_"$TIMESTAMP -;
     then
-      echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Backup $domain/${drive_name[$i]} complete
+      echo $LOG_TIMESTAMP Backup $domain/${drive_name[$i]} complete
     else
       error "Backup $domain/${drive_name[$i]} stoped"
     fi
@@ -112,10 +114,12 @@ backup_domain() {
 }
 
 main() {
-  while [[ ! -z `pidof -x -o $$ $(basename $0)` ]]; do
-    echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Warning: Backup already running...
-    sleep 10
+  while [[ -e $PIDFILE ]]; do
+    echo Warning: Backup already running...
+    sleep 60
   done
+  trap "rm -f -- '$PIDFILE'" EXIT
+  echo $$ > $PIDFILE
 
   if ! [[ -e $keyring ]]; then
     error "keys/ceph.client.borg.keyring not exist"
@@ -123,7 +127,6 @@ main() {
 
   create_repo
 
-  printf "[$(date +'%m/%d/%Y %H:%M:%S.%N')] "
   for domain in $@; do
     backup_domain $domain
   done
