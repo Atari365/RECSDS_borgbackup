@@ -19,13 +19,13 @@ usage() {
 echo "Usage: $0 [OPTIONS]... DOMAIN...
 Backup DOMAIN(s) of libvirt via Borgbackup
 
-  -kd, --keep-daily      how many backups of each day will be kept (Default: 7)
-  -kw, --keep-weekly     how many backups of each week will be kept (Default: 4)
-  -km, --keep-monthly    how many backups of each month will be kept (Default: 4)
-  -t,  --timestamp       timestamp format (Default: {now:%Y-%m-%d})
-  -r,  --repo            where to backup (Default: borg@\$HOSTNAME:~/borgbackup/\$HOSTNAME)
-  -p,  --prefix          prefix used by prune (Default: recsds)
-  -h,  --help            print this message
+  -kd, --keep-daily    how many backups of each day will be kept (Default: 7)
+  -kw, --keep-weekly   how many backups of each week will be kept (Default: 4)
+  -km, --keep-monthly  how many backups of each month will be kept (Default: 4)
+  -t,  --timestamp     timestamp format (Default: {now:%Y-%m-%d})
+  -r,  --repo          where to backup (Default: borg@\$HOSTNAME:~/borgbackup/\$HOSTNAME)
+  -p,  --prefix        prefix used by prune (Default: recsds)
+  -h,  --help          print this message
 
 Examples:
   $0 --repo borg@10.0.1.15:~/borgbackup/web_servers
@@ -36,21 +36,21 @@ Examples:
 error() {
   local -r msg=$1
 
-  echo -e Error: $msg
+  echo -e [$(date +'%m/%d/%Y %H:%M:%S.%N')] Error: $msg
   exit 1
 }
 
 create_repo() {
-  echo Check repository $BORG_REPO:
+  echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Check repository $BORG_REPO:
   borg init --make-parent-dirs -e none $BORG_REPO
 
   case $? in
     0)
-      echo Repo $BORG_REPO created
+      echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Repo $BORG_REPO created
       return 0
       ;;
     2)
-      echo Repo $BORG_REPO exist
+      echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Repo $BORG_REPO exist
       return 1
       ;;
     *)
@@ -68,7 +68,7 @@ backup_domain() {
   if [[ $($virsh list --all | grep $domain | awk '{print $3}') != running ]]; then
     error "Domain $domain does not exist"
   else
-    echo Prepare to $domain backup
+    echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Prepare to $domain backup
   fi
 
   # Get info about attached drives
@@ -76,24 +76,26 @@ backup_domain() {
   drive_name=($($virsh domblklist --details $domain | awk '/disk/{print $3}' | tr " " "\n"))
 
   # Freeze domain
-  if ! $virsh domfsfreeze $domain; then
+  printf "[$(date +'%m/%d/%Y %H:%M:%S.%N')] "
+  if ! $virsh domfsfreeze $domain | sed -r '/^\s*$/d'; then
     error "Unable to freeze filesystems"
   fi
-  sleep 20 # For warranty
+  sleep 5 # For warranty
   for img in "${image[@]}"; do
     $rbd snap create $img@borg
-    echo Snapshot $img@borg created
+    echo [$(date +'%m/%d/%Y %H:%M:%S.%N')]  Snapshot $img@borg created
   done
-  $virsh domfsthaw $domain
+  printf "[$(date +'%m/%d/%Y %H:%M:%S.%N')] "
+  $virsh domfsthaw $domain | sed -r '/^\s*$/d'
 
   for ((i = 0; i < ${#image[@]}; i++)); do
-    echo Start backup $domain/${drive_name[$i]}
+    echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Start backup $domain/${drive_name[$i]}
     # Backup RBD to Borg repo
     if $rbd export ${image[$i]}@borg - | borg create --stats \
          --stdin-name $domain"_"${drive_name[$i]}".raw" \
          $BORG_REPO::$PRUNE_PREFIX"_"$domain"_"${drive_name[$i]}"_"$TIMESTAMP -;
     then
-      echo Backup $domain/${drive_name[$i]} complete
+      echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Backup $domain/${drive_name[$i]} complete
     else
       error "Backup $domain/${drive_name[$i]} stoped"
     fi
@@ -105,7 +107,7 @@ backup_domain() {
 
 main() {
   while [[ ! -z `pidof -x -o $$ $(basename $0)` ]]; do
-    echo "Backup already running..."
+    echo [$(date +'%m/%d/%Y %H:%M:%S.%N')] Warning: Backup already running...
     sleep 10
   done
 
