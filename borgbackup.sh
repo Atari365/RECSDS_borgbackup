@@ -64,7 +64,6 @@ backup_domain() {
   local -r domain=$1
   local image=()
   local drive_name=()
-  local backup_images=()
 
   if [[ $($virsh list --all | grep $domain | awk '{print $3}') != running ]]; then
     error "Domain $domain does not exist"
@@ -90,10 +89,15 @@ backup_domain() {
   for ((i = 0; i < ${#image[@]}; i++)); do
     echo Start backup $domain/${drive_name[$i]}
     # Backup RBD to Borg repo
-    $rbd export ${image[$i]}@borg - | borg create --stats \
-      $BORG_REPO::$PRUNE_PREFIX"_"$domain"_"${drive_name[$i]}"_"$TIMESTAMP -
+    if $rbd export ${image[$i]}@borg - | borg create --stats \
+         --stdin-name $domain"_"${drive_name[$i]}".raw" \
+         $BORG_REPO::$PRUNE_PREFIX"_"$domain"_"${drive_name[$i]}"_"$TIMESTAMP -;
+    then
+      echo Backup $domain/${drive_name[$i]} complete
+    else
+      error "Backup $domain/${drive_name[$i]} stoped"
+    fi
     $rbd snap rm ${image[$i]}@borg
-    echo Backup $domain/${drive_name[$i]} complete
   done
 
   return 0
@@ -154,7 +158,7 @@ while [[ "$1" != "" ]]; do
       shift
       TIMESTAMP=$1
       ;;
-    -p,  --prefix )
+    -p | --prefix )
       shift
       PRUNE_PREFIX=$1
       ;;
