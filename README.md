@@ -75,5 +75,5 @@ crontab -e
 ```
 And add this string
 ```bash
-0 0 * * * path-to-auto-backup-script [OPTIONS]... DOMAIN...
+0 0 * * * path-to-borgbackup.sh [OPTIONS]... DOMAIN... >> /var/log/recsds_borgbackup/borgbackup.log 2>&1
 ```
