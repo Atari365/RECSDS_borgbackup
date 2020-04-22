@@ -7,22 +7,30 @@ sudo yum install -y borgbackup
 ```bash
 sudo useradd borg
 sudo passwd borg
-sudo usermod -aG wheel,libvirt borg
+sudo usermod -aG libvirt borg
 ```
 ### SSH Keys (under borg user)
 ```bash
 ssh-keygen
-ssh-copy-id BORG_REPO_HOST
+ssh-copy-id <borg-repo-host>
 ```
 ### Copy ceph.client.admin.keyring keyring to project
 ```bash
 mkdir keys
-sudo cp /etc/ceph/ceph.client.admin.keyring keys/
-chmod 644 keys/ceph.client.admin.keyring
+sudo ceph auth get-or-create client.borg mgr 'allow r' mon 'allow r' osd 'allow class-read object_prefix rbd_children, allow rwx pool=images, allow rwx pool=volumes, allow rwx pool=vms, allow rwx pool=ssd-root' -o keys/ceph.client.borg.keyring
+sudo chown borg:borg keys/ceph.client.borg.keyring
 ```
 ###  Make scripts executable
 ```bash
+git clone <github-repo>
+cd RECSDS_borgbackup
 chmod +x borgbackup.sh
+```
+
+### Create log dir
+```bash
+sudo mkdir /var/log/recsds_borgbackup/
+sudo chown borg:borg /var/log/recsds_borgbackup/
 ```
 
 ## Install qemu agent on domain
@@ -55,6 +63,10 @@ sudo virsh qemu-agent-command <guest-name> '{"execute":"guest-info"}'
 ```bash
 ./borgbackup.sh [OPTIONS]... DOMAIN...
 ```
+For more information run
+```bash
+./borgbackup.sh --help
+```
 
 ## Automation backup
 ### Add script to crontab
@@ -64,10 +76,4 @@ crontab -e
 And add this string
 ```bash
 0 0 * * * path-to-auto-backup-script [OPTIONS]... DOMAIN...
-```
-
-# Optional
-## Disable some features in images
-```bash
-sudo rbd feature disable path-to-image object-map fast-diff deep-flatten
 ```

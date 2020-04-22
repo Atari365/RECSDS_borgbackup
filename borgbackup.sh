@@ -12,8 +12,8 @@ export BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes
 export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
 
 export virsh="virsh --connect qemu:///system"
-export keyring=keys/ceph.client.admin.keyring
-export rbd="rbd --keyring $keyring"
+export keyring=keys/ceph.client.borg.keyring
+export rbd="rbd --user borg  --keyring $keyring"
 
 usage() {
 echo "Usage: $0 [OPTIONS]... DOMAIN...
