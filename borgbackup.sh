@@ -5,9 +5,11 @@ export KEEP_DAILY=7
 export KEEP_WEEKLY=4
 export KEEP_MONTHLY=4
 
-export TIMESTAMP={now:%Y-%m-%d}
+export PRUNE=true
 export PRUNE_PREFIX=recsds
 export LOG_TIMESTAMP=[$(date +'%m/%d/%Y %H:%M:%S.%N')]
+export TIMESTAMP={now:%Y-%m-%d}
+export BACKUP_NAME
 
 export BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes
 export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
@@ -21,13 +23,16 @@ usage() {
 echo "Usage: $0 [OPTIONS]... DOMAIN...
 Backup DOMAIN(s) of libvirt via Borgbackup
 
-  -kd, --keep-daily    how many backups of each day will be kept (Default: 7)
-  -kw, --keep-weekly   how many backups of each week will be kept (Default: 4)
-  -km, --keep-monthly  how many backups of each month will be kept (Default: 4)
-  -t,  --timestamp     timestamp format (Default: {now:%Y-%m-%d})
-  -r,  --repo          where to backup (Default: borg@\$HOSTNAME:~/borgbackup/\$HOSTNAME)
-  -p,  --prefix        prefix used by prune (Default: recsds)
-  -h,  --help          print this message
+  -kd, --keep-daily    How many backups of each day will be kept (Default: 7)
+  -kw, --keep-weekly   How many backups of each week will be kept (Default: 4)
+  -km, --keep-monthly  How many backups of each month will be kept (Default: 4)
+  -t,  --timestamp     Timestamp format (Default: {now:%Y-%m-%d})
+  -r,  --repo          Where to backup (Default: borg@\$HOSTNAME:~/borgbackup/\$HOSTNAME)
+  -p,  --prefix        Prefix used by prune (Default: recsds)
+  -np, --not-prune     Do not prune (For manual backup, default - off)
+  -n,  --name          Set the custom name (Default: \$PREFIX_\$DOMAIN_\$DRIVE_\$TIMESTAMP;
+                       work with only one domain)
+  -h,  --help          Print this message
 
 Examples:
   $0 --repo borg@10.0.1.15:~/borgbackup/web_servers
@@ -66,6 +71,7 @@ backup_domain() {
   local -r domain=$1
   local image=()
   local drive_name=()
+  local flag=true
 
   if [[ $($virsh list --all | grep $domain | awk '{print $3}') != running ]]; then
     error "Domain $domain does not exist"
@@ -93,21 +99,45 @@ backup_domain() {
 
   for ((i = 0; i < ${#image[@]}; i++)); do
     echo $LOG_TIMESTAMP Start backup $domain/${drive_name[$i]}
+    if [[ ! $BACKUP_NAME ]]; then
+      if $PRUNE; then
+        BACKUP_NAME=$PRUNE_PREFIX"_"$domain"_"${drive_name[$i]}"_"$TIMESTAMP
+      else
+        BACKUP_NAME=$domain"_"${drive_name[$i]}"_"$TIMESTAMP
+      fi
+    else
+      flag=false
+      if $PRUNE; then
+        BACKUP_NAME=$PRUNE_PREFIX"_"$BACKUP_NAME
+      fi
+    fi
     # Backup RBD to Borg repo
     if $rbd export ${image[$i]}@borg - | borg create --stats \
          --stdin-name $domain"_"${drive_name[$i]}".raw" \
-         $BORG_REPO::$PRUNE_PREFIX"_"$domain"_"${drive_name[$i]}"_"$TIMESTAMP -;
+         $BORG_REPO::$BACKUP_NAME -;
     then
       echo $LOG_TIMESTAMP Backup $domain/${drive_name[$i]} complete
     else
       error "Backup $domain/${drive_name[$i]} stoped"
     fi
     $rbd snap rm ${image[$i]}@borg
-    borg prune -v --list -P $PRUNE_PREFIX"_"$domain"_"${drive_name[$i]}"_" \
-        --keep-daily=$KEEP_DAILY \
-        --keep-weekly=$KEEP_WEEKLY \
-        --keep-monthly=$KEEP_MONTHLY \
-        $BORG_REPO
+    if $PRUNE; then
+      if $flag; then
+        echo $LOG_TIMESTAMP Prune prefix: $PRUNE_PREFIX"_"$domain"_"${drive_name[$i]}"_"
+        borg prune -v --list -P $PRUNE_PREFIX"_"$domain"_"${drive_name[$i]}"_" \
+            --keep-daily=$KEEP_DAILY \
+            --keep-weekly=$KEEP_WEEKLY \
+            --keep-monthly=$KEEP_MONTHLY \
+            $BORG_REPO
+      else
+        echo $LOG_TIMESTAMP Prune prefix: $PRUNE_PREFIX"_"
+        borg prune -v --list -P $PRUNE_PREFIX"_" \
+            --keep-daily=$KEEP_DAILY \
+            --keep-weekly=$KEEP_WEEKLY \
+            --keep-monthly=$KEEP_MONTHLY \
+            $BORG_REPO
+      fi
+    fi
   done
 
   return 0
@@ -115,7 +145,7 @@ backup_domain() {
 
 main() {
   while [[ -e $PIDFILE ]]; do
-    echo Warning: Backup already running...
+    echo $LOG_TIMESTAMP Warning: Backup already running...
     sleep 60
   done
   trap "rm -f -- '$PIDFILE'" EXIT
@@ -127,9 +157,16 @@ main() {
 
   create_repo
 
-  for domain in $@; do
-    backup_domain $domain
-  done
+  if [[ $BACKUP_NAME == "" ]]; then
+    for domain in $@; do
+      backup_domain $domain
+    done
+  else
+    if [[ $# -gt 1 ]]; then
+      error "You are using the flag name. With it, you can backup only one domain at a time."
+    fi
+    backup_domain $1
+  fi
 
   return 0
 }
@@ -161,13 +198,20 @@ while [[ "$1" != "" ]]; do
       shift
       BORG_REPO=$1
       ;;
-    -t | --timestamp )
+    -t | --timestamp)
       shift
       TIMESTAMP=$1
       ;;
-    -p | --prefix )
+    -p | --prefix)
       shift
       PRUNE_PREFIX=$1
+      ;;
+    -np | --not-prune)
+      PRUNE=false
+      ;;
+    -n | --name)
+      shift
+      BACKUP_NAME=$1
       ;;
     *)
       main $@
