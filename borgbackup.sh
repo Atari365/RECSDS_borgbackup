@@ -91,7 +91,7 @@ backup_domain() {
   sleep 5 # For warranty
   for img in "${image[@]}"; do
     if $rbd snap create $img@borg; then
-      echo [$(date +'%m/%d/%Y %H:%M:%S.%N')]  Snapshot $img@borg created
+      echo $LOG_TIMESTAMP  Snapshot $img@borg created
     fi
   done
   printf "$LOG_TIMESTAMP "
@@ -138,6 +138,7 @@ backup_domain() {
             $BORG_REPO
       fi
     fi
+    BACKUP_NAME=""
   done
 
   return 0
