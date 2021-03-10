@@ -73,7 +73,7 @@ backup_domain() {
   local drive_name=()
   local flag=true
 
-  if [[ $($virsh list --all | awk '{print $2}' | grep '^controller-virt$') != running ]]; then
+  if [[ $($virsh list --all | grep " $domain " | awk '{print $3}' | grep running) != running ]]; then
     error "Domain $domain does not exist"
   else
     echo $LOG_TIMESTAMP Prepare to $domain backup
